@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stageflow-mcp"
+version = "0.1.0"
+description = "StageFlow over MCP: let an agent write, check and run pipelines on a StageFlow backend"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "лень", email = "pzrnqt1vrss@protonmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    # the MCP protocol itself
+    "mcp>=2.0",
+    # for the pipeline JSON Schema and nothing else: the schema is the core's
+    # file, and shipping a copy here would be a copy to keep in step. No
+    # validation happens locally — that is the backend's answer to give.
+    "stageflow-framework>=0.13",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+
+[project.optional-dependencies]
+dev = [
+    "flake8",
+]
+
+[project.scripts]
+stageflow-mcp = "stageflow_mcp.cli:main"
+
+[project.urls]
+Repository = "https://github.com/leo-need-more-coffee/stageflow-mcp"
+Issues = "https://github.com/leo-need-more-coffee/stageflow-mcp/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stageflow_mcp*"]
