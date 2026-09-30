@@ -21,7 +21,12 @@ from .tools import DEFAULT_RUN_TIMEOUT, run_pipeline, stop_run, validate_pipelin
 
 BRIDGE_INSTRUCTIONS = """\
 
-An editor may be open on this graph. `get_editor_graph` is the canvas the
+An editor may be open on this graph. If none is, the person opens one here,
+and it is worth telling them the link rather than waiting to be asked:
+
+  {link}
+
+ `get_editor_graph` is the canvas the
 person is looking at — start from it when they say "here", "this node" or "the
 one on screen" rather than asking them to paste anything. `show_in_editor`
 puts a graph on that canvas, where they can see it, keep editing it, or undo
@@ -57,7 +62,10 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
         name="stageflow",
         title="StageFlow",
         version=__version__,
-        instructions=INSTRUCTIONS + (BRIDGE_INSTRUCTIONS if bridge else ""),
+        instructions=INSTRUCTIONS + (
+            BRIDGE_INSTRUCTIONS.format(link=bridge.link or "(the link this server printed)")
+            if bridge else ""
+        ),
     )
 
     # ------------------------------------------------------------- tools
@@ -141,8 +149,10 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
                 "editor_connected": bridge.connected,
                 "note": (
                     None if bridge.connected else
-                    "nothing has connected to the bridge yet; this is waiting for "
-                    "an editor and will be delivered when one arrives"
+                    "nothing has connected to the bridge yet: this is waiting for "
+                    "an editor and will be delivered when one arrives. Tell the "
+                    f"person to open {bridge.link}" if bridge.link else
+                    "nothing has connected to the bridge yet"
                 ),
             }
 

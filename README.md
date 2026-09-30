@@ -73,6 +73,11 @@ the same graph the agent is: `show_in_editor` puts a pipeline on the canvas,
 `get_editor_graph` reads back what the person changed there. "Add a retry to
 this node" stops being a request to paste anything.
 
+The link is printed to stderr *and* handed to the agent, because under an MCP
+client stderr is a log file nobody is looking at — so the assistant can simply
+tell you where to open it. `--editor http://127.0.0.1:8080/` points the link at
+a copy of the editor you serve yourself.
+
 Off unless asked for — the two tools do not exist without `--bridge`, because a
 tool an agent has been told about is a tool it will call, and a socket on
 somebody's machine is not this process's to open uninvited.

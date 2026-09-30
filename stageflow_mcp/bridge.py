@@ -67,6 +67,11 @@ class Bridge:
         self._lock = threading.Condition()
         self._server: ThreadingHTTPServer | None = None
         self.url = ""
+        #: the address a person should open, once someone has worked out which
+        #: editor and which backend. Kept here because the process that prints
+        #: it writes to stderr, and under an MCP client stderr is a log file
+        #: nobody is looking at — so the agent has to be able to say it out loud
+        self.link = ""
 
     # --------------------------------------------------------------- state
 

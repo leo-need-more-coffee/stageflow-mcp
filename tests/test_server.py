@@ -110,6 +110,21 @@ class ServerTests(unittest.TestCase):
             answer = text_of(asyncio.run(server.call_tool("get_editor_graph", {})))
             self.assertIn("drawn_by_hand", answer)
 
+    def test_the_bridge_link_is_where_the_agent_can_read_it(self):
+        """Under an MCP client the server's stderr is a log file nobody is
+        looking at, so the link it printed at startup has to reach the person
+        some other way — which means the model has to know it."""
+        bridge = Bridge()
+        bridge.url = "http://127.0.0.1:7433"
+        bridge.link = bridge.editor_link("https://host/editor/", "https://sf.example")
+        with FakeBackend() as fake:
+            server = build(Backend(fake.url), bridge=bridge)
+            self.assertIn(bridge.link, server.instructions or "")
+
+            answer = text_of(asyncio.run(server.call_tool(
+                "show_in_editor", {"pipeline": {"nodes": []}})))
+            self.assertIn("127.0.0.1:7433", answer)
+
     def test_the_server_says_how_to_work(self):
         """The instructions are the only place a client is told to check before
         it runs. An empty one would make that a thing only the author knows."""

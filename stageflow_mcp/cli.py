@@ -150,11 +150,12 @@ def main(argv: list[str] | None = None) -> int:
         bridge = Bridge(token=args.bridge_token or None,
                         origins=[HOSTED_EDITOR, *args.bridge_origin])
         bridge.start(args.bridge)
+        bridge.link = bridge.editor_link(args.editor, backend.url)
         # stderr, because stdout is the MCP transport and a word on it would be
         # a protocol error rather than a message
         print(
             "bridge open. Open the editor at this address to see what the agent "
-            f"draws:\n\n  {bridge.editor_link(args.editor, backend.url)}\n\n"
+            f"draws:\n\n  {bridge.link}\n\n"
             "The token is in the # part, so it never reaches the editor's host.",
             file=sys.stderr,
         )
