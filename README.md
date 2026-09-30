@@ -24,10 +24,23 @@ editor talks to, handed to an agent as three tools and five resources.
 claude mcp add stageflow -- uvx stageflow-mcp --backend https://stageflow.lazy.su
 ```
 
-or, for a backend of your own with a credential:
+That address is the one you would type on the editor's connection screen, and
+it is read the same way: `localhost:8765`, `http://localhost:8765/` and
+`.../api` all mean one backend. A bare hostname gets `https://` unless it is
+loopback — see [below](#two-things-worth-knowing).
+
+**A credential, if that backend wants one.** It is the same credential the
+editor carries, in the same header, and it is not this tool's to issue: the
+core has no idea what a token is, so whoever runs the backend decides what one
+looks like and hands it over. In the reference backends it is one environment
+variable (`SF_TOKENS="secret:plan"`) and forty lines of `auth.py` that a real
+deployment replaces wholesale. Without one you are whatever that backend calls
+an anonymous caller — on the public demo above, a narrow plan that works.
 
 ```bash
 uvx stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN"
+uvx stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN" \
+                  --auth-header X-Api-Key          # if it is not Authorization
 ```
 
 Check the address before wiring an agent to it — the same questions, printed:
