@@ -19,6 +19,7 @@ import sys
 from .backend import DEFAULT_AUTH_HEADER, Backend, BackendError
 from .bridge import HOSTED_EDITOR, Bridge
 from .catalog import capabilities
+from .connection import Connection, config_path
 
 
 #: Where the published editor lives, for the link the bridge prints.
@@ -33,7 +34,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--backend", default=os.environ.get("STAGEFLOW_BACKEND", ""),
         help="the backend's address, as typed into the editor "
-             "(env: STAGEFLOW_BACKEND). `localhost:8765` and `.../api` both work",
+             "(env: STAGEFLOW_BACKEND). `localhost:8765` and `.../api` both work. "
+             "Leave it out and the first tool that needs one asks — through the "
+             "client's own prompt, if that client can be asked",
     )
     parser.add_argument(
         "--token", default=os.environ.get("STAGEFLOW_TOKEN", ""),
@@ -79,6 +82,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
              f"(default: {HOSTED_UI})",
     )
     parser.add_argument(
+        "--no-remember", action="store_true",
+        help=f"do not write an asked-for address to {config_path()} (a credential "
+             f"is never written there either way)",
+    )
+    parser.add_argument(
         "--check", action="store_true",
         help="ask the backend what it is, print it, and exit — without starting a server",
     )
@@ -114,26 +122,30 @@ def check(backend: Backend) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if not args.backend:
+    connection = Connection(
+        auth_header=args.auth_header,
+        lang=args.lang,
+        plan=args.plan,
+        remember=not args.no_remember,
+    )
+    address = args.backend or connection.recall()
+    if address:
+        try:
+            connection.use(address, args.token)
+        except ValueError as bad:
+            print(str(bad), file=sys.stderr)
+            return 2
+    elif args.check:
         print(
-            "no backend given: pass --backend or set STAGEFLOW_BACKEND.\n"
+            "no backend to check: pass --backend or set STAGEFLOW_BACKEND.\n"
             "It is the same address you would type on the editor's connection screen.",
             file=sys.stderr,
         )
         return 2
-    try:
-        backend = Backend(
-            args.backend,
-            token=args.token,
-            auth_header=args.auth_header,
-            lang=args.lang,
-            plan=args.plan,
-        )
-    except ValueError as bad:
-        print(str(bad), file=sys.stderr)
-        return 2
 
-    if backend.credential_in_the_clear:
+    backend = connection.backend
+
+    if backend is not None and backend.credential_in_the_clear:
         print(
             f"warning: the credential will travel to {backend.url} over plain http.\n"
             "         Write the address with https:// if that backend serves it.",
@@ -147,6 +159,13 @@ def main(argv: list[str] | None = None) -> int:
 
     bridge = None
     if args.bridge is not None:
+        if backend is None:
+            print(
+                "--bridge needs a backend: the link it prints carries the address "
+                "the editor should connect to. Pass --backend as well.",
+                file=sys.stderr,
+            )
+            return 2
         bridge = Bridge(token=args.bridge_token or None,
                         origins=[HOSTED_EDITOR, *args.bridge_origin])
         bridge.start(args.bridge)
@@ -160,7 +179,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    build(backend, lang=args.lang, bridge=bridge).run("stdio")
+    build(connection, lang=args.lang, bridge=bridge).run("stdio")
     return 0
 
 

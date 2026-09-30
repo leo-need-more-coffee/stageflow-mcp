@@ -24,6 +24,24 @@ editor talks to, handed to an agent as three tools and five resources.
 claude mcp add stageflow -- uvx stageflow-mcp --backend https://stageflow.lazy.su
 ```
 
+**Or let it ask.** With no `--backend` the first tool that needs one asks —
+through the MCP client's own prompt, not through the conversation:
+
+```bash
+claude mcp add stageflow -- uvx stageflow-mcp
+```
+
+The answer is remembered in `~/.config/stageflow-mcp/config.json`, so it is a
+question asked once rather than once a session. **The address only** — a
+credential is never written there, and there is deliberately no tool that
+accepts one: a tool argument is written by the model, which puts it in the
+conversation, the transcript and that client's logs.
+
+Not every client can be asked. At the time of writing the terminal Claude Code
+can; its VS Code extension declares the capability and declines every request;
+the Desktop code tab offers none. Where it cannot, the first call says so and
+names the flag to pass instead — it never guesses an address.
+
 That address is the one you would type on the editor's connection screen, and
 it is read the same way: `localhost:8765`, `http://localhost:8765/` and
 `.../api` all mean one backend. A bare hostname gets `https://` unless it is

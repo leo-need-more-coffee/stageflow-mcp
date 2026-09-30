@@ -11,11 +11,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Context, MCPServer
 
 from . import __version__
 from .backend import Backend
 from .bridge import Bridge
+from .connection import Connection
 from .catalog import EXAMPLES, GUIDE, capabilities, example, pipeline_schema, stage_catalog
 from .tools import DEFAULT_RUN_TIMEOUT, run_pipeline, stop_run, validate_pipeline
 
@@ -49,8 +50,14 @@ arguments and outputs are the backend's, never guessable.
 """
 
 
-def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = None) -> MCPServer:
-    """An MCP server bound to one backend, and optionally to an open editor.
+def build(connection: Connection | Backend, lang: str | None = None,
+          bridge: Bridge | None = None) -> MCPServer:
+    """An MCP server over one connection, and optionally an open editor.
+
+    A `Connection` rather than a `Backend` because the address may not be known
+    yet: a client that can be asked is asked at the first tool that needs one
+    (see `connection.py`). A plain `Backend` is accepted and wrapped, which is
+    what every test and every configured startup passes.
 
     The bridge is a parameter rather than a setting because it is a listening
     socket: a server built without one has no way to reach a page, and the two
@@ -58,6 +65,8 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
     about a capability that does not exist, which is the only honest way to
     make one optional.
     """
+    connection = (connection if isinstance(connection, Connection)
+                  else Connection(connection, lang=lang))
     server = MCPServer(
         name="stageflow",
         title="StageFlow",
@@ -80,10 +89,10 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
             "refuses. Costs no run. Use it after every edit."
         ),
     )
-    def validate_pipeline_tool(
-        pipeline: dict[str, Any], variables: dict[str, Any] | None = None
+    async def validate_pipeline_tool(
+        pipeline: dict[str, Any], ctx: Context, variables: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        return validate_pipeline(backend, pipeline, variables)
+        return validate_pipeline(await connection.resolve(ctx), pipeline, variables)
 
     @server.tool(
         name="run_pipeline",
@@ -95,20 +104,22 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
             "took. Validate first — a run is a slot on a shared backend."
         ),
     )
-    def run_pipeline_tool(
+    async def run_pipeline_tool(
         pipeline: dict[str, Any],
+        ctx: Context,
         variables: dict[str, Any] | None = None,
         timeout_seconds: float = DEFAULT_RUN_TIMEOUT,
     ) -> dict[str, Any]:
-        return run_pipeline(backend, pipeline, variables, timeout=timeout_seconds)
+        return run_pipeline(await connection.resolve(ctx), pipeline, variables,
+                            timeout=timeout_seconds)
 
     @server.tool(
         name="stop_run",
         title="Stop a run",
         description="Stop a run that is still going, by the id a run answered with.",
     )
-    def stop_run_tool(run_id: str) -> dict[str, Any]:
-        return stop_run(backend, run_id)
+    async def stop_run_tool(run_id: str, ctx: Context) -> dict[str, Any]:
+        return stop_run(await connection.resolve(ctx), run_id)
 
     if bridge is not None:
 
@@ -177,7 +188,10 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
         mime_type="application/json",
     )
     def stages() -> str:
-        return json.dumps(stage_catalog(backend, lang), ensure_ascii=False, indent=2)
+        if connection.backend is None:
+            return _no_backend_yet("the stages a backend offers")
+        return json.dumps(stage_catalog(connection.backend, lang),
+                          ensure_ascii=False, indent=2)
 
     @server.resource(
         "stageflow://capabilities",
@@ -189,7 +203,9 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
         mime_type="application/json",
     )
     def what_it_can_run() -> str:
-        return json.dumps(capabilities(backend), ensure_ascii=False, indent=2)
+        if connection.backend is None:
+            return _no_backend_yet("what a backend can run")
+        return json.dumps(capabilities(connection.backend), ensure_ascii=False, indent=2)
 
     @server.resource(
         "stageflow://schema",
@@ -201,7 +217,9 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
         mime_type="application/schema+json",
     )
     def schema() -> str:
-        return json.dumps(pipeline_schema(backend), ensure_ascii=False, indent=2)
+        if connection.backend is None:
+            return _no_backend_yet("the schema narrowed to a backend")
+        return json.dumps(pipeline_schema(connection.backend), ensure_ascii=False, indent=2)
 
     @server.resource(
         "stageflow://examples/{name}",
@@ -215,3 +233,14 @@ def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = Non
         return example(name)
 
     return server
+
+
+def _no_backend_yet(what: str) -> str:
+    """A resource is read without a request context, so it cannot ask for an
+    address the way a tool can. It says so instead of failing: calling any
+    tool will settle the question, and then this reads normally."""
+    return json.dumps({
+        "available": False,
+        "reason": f"no backend is connected yet, and {what} is its answer to give",
+        "next": "call any tool — it will ask for the address, or say how to set it",
+    }, ensure_ascii=False, indent=2)

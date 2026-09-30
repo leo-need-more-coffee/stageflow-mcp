@@ -13,6 +13,7 @@ import unittest
 
 from stageflow_mcp.backend import Backend
 from stageflow_mcp.bridge import Bridge
+from stageflow_mcp.connection import Connection
 from stageflow_mcp.server import build
 from tests.fake import FakeBackend
 
@@ -124,6 +125,19 @@ class ServerTests(unittest.TestCase):
             answer = text_of(asyncio.run(server.call_tool(
                 "show_in_editor", {"pipeline": {"nodes": []}})))
             self.assertIn("127.0.0.1:7433", answer)
+
+    def test_resources_say_so_instead_of_failing_before_there_is_a_backend(self):
+        """A resource is read without a request context, so it cannot ask the
+        way a tool can. Saying what is missing beats an error the reader cannot
+        act on — and one tool call settles it."""
+        server = build(Connection())
+        for uri in ("stageflow://stages", "stageflow://capabilities", "stageflow://schema"):
+            answer = json.loads(text_of(asyncio.run(server.read_resource(uri))))
+            self.assertFalse(answer["available"], uri)
+            self.assertIn("call any tool", answer["next"])
+        # the guide and the examples are ours and need no backend at all
+        self.assertIn("StageFlow pipeline",
+                      text_of(asyncio.run(server.read_resource("stageflow://guide"))))
 
     def test_the_server_says_how_to_work(self):
         """The instructions are the only place a client is told to check before
