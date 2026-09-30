@@ -108,6 +108,17 @@ class GuideTests(unittest.TestCase):
             with self.subTest(example=name):
                 jsonschema.validate(instance=graph, schema=schema)
 
+    def test_the_examples_place_no_nodes(self):
+        """`metadata.ui` is where a person dragged a card. A graph written from
+        here has nobody to have dragged it, and inventing coordinates produces a
+        pile — the editor lays out what arrives without them."""
+        for name, graph in EXAMPLES.items():
+            for node in graph["nodes"]:
+                self.assertNotIn("ui", node.get("metadata", {}), f"{name}: {node['id']}")
+
+    def test_the_guide_says_not_to_place_the_nodes(self):
+        self.assertIn("metadata.ui", GUIDE)
+
     def test_the_guide_says_how_to_reach_a_variable(self):
         """The one CEL detail that is not guessable and is got wrong by
         default: a non-identifier name needs the bracket form."""

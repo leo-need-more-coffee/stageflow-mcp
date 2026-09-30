@@ -217,6 +217,15 @@ the body wrote; `subpipeline` runs a graph declared in `subpipelines`. Each has
 its own fields — the schema resource has them all, with the enums of this
 backend already applied.
 
+## Do not place the nodes
+
+`metadata` is yours to put things in, but **`metadata.ui` is the editor's**: it
+is where a person dragged that card. Leave it out. A graph without coordinates
+is laid out when it is opened — by execution order, with the branches and the
+bodies of blocks in their own columns — which is better than anything invented
+from here, where nothing knows how wide a card is. Coordinates that would stack
+the cards are discarded on arrival anyway.
+
 ## Working method
 
 Write the graph, call `validate_pipeline`, fix everything it lists, repeat. It
