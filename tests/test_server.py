@@ -12,6 +12,7 @@ import json
 import unittest
 
 from stageflow_mcp.backend import Backend
+from stageflow_mcp.bridge import Bridge
 from stageflow_mcp.server import build
 from tests.fake import FakeBackend
 
@@ -70,6 +71,44 @@ class ServerTests(unittest.TestCase):
                 text_of(asyncio.run(server.read_resource("stageflow://examples/straight-line")))
             )
             self.assertEqual(graph["nodes"][0]["id"], "start")
+
+    def test_the_editor_tools_do_not_exist_without_a_bridge(self):
+        """The only honest way to make a capability optional: an agent that is
+        told about a tool will call it, and a bridge that was never asked for
+        is not a socket this process gets to open."""
+        with FakeBackend() as fake:
+            server = build(Backend(fake.url))
+            names = {tool.name for tool in asyncio.run(_tools(server))}
+            self.assertNotIn("show_in_editor", names)
+            self.assertNotIn("get_editor_graph", names)
+            self.assertNotIn("editor", (server.instructions or "").lower())
+
+    def test_with_a_bridge_they_are_there_and_they_reach_it(self):
+        bridge = Bridge()
+        with FakeBackend() as fake:
+            server = build(Backend(fake.url), bridge=bridge)
+            names = {tool.name for tool in asyncio.run(_tools(server))}
+            self.assertIn("show_in_editor", names)
+            self.assertIn("get_editor_graph", names)
+
+            graph = {"nodes": [{"id": "start", "type": "entry"}]}
+            asyncio.run(server.call_tool("show_in_editor",
+                                         {"pipeline": graph, "note": "have a look"}))
+            sent = bridge._messages[-1]
+            self.assertEqual(sent["type"], "graph")
+            self.assertEqual(sent["pipeline"], graph)
+            self.assertEqual(sent["note"], "have a look")
+
+    def test_reading_the_canvas_before_an_editor_connected(self):
+        bridge = Bridge()
+        with FakeBackend() as fake:
+            server = build(Backend(fake.url), bridge=bridge)
+            answer = text_of(asyncio.run(server.call_tool("get_editor_graph", {})))
+            self.assertIn('"connected": false', answer.lower())
+
+            bridge.graph_from_editor({"nodes": [{"id": "drawn_by_hand", "type": "entry"}]})
+            answer = text_of(asyncio.run(server.call_tool("get_editor_graph", {})))
+            self.assertIn("drawn_by_hand", answer)
 
     def test_the_server_says_how_to_work(self):
         """The instructions are the only place a client is told to check before

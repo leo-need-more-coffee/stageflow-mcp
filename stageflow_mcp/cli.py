@@ -17,7 +17,12 @@ import os
 import sys
 
 from .backend import DEFAULT_AUTH_HEADER, Backend, BackendError
+from .bridge import HOSTED_EDITOR, Bridge
 from .catalog import capabilities
+
+
+#: Where the published editor lives, for the link the bridge prints.
+HOSTED_UI = "https://leo-need-more-coffee.github.io/stageflow-ui/"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -48,6 +53,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--plan", default=os.environ.get("STAGEFLOW_PLAN", ""),
         help="ask to be SHOWN this plan instead of the caller's own. It changes "
              "what is offered and checked, never what a run is allowed",
+    )
+    parser.add_argument(
+        "--bridge", nargs="?", const=0, type=int, default=None, metavar="PORT",
+        help="also open a bridge to the editor on loopback, so a graph can be put "
+             "on the canvas and read back from it. A port may be given; 0 or "
+             "nothing picks a free one. Off unless asked for: it is a listening "
+             "socket on this machine",
+    )
+    parser.add_argument(
+        "--bridge-token", default=os.environ.get("STAGEFLOW_BRIDGE_TOKEN", ""),
+        metavar="TOKEN",
+        help="use this token for the bridge instead of a generated one — for a "
+             "link worth bookmarking, or for a script. Leave it out and a fresh "
+             "one is made at every start, which is the safer default",
+    )
+    parser.add_argument(
+        "--bridge-origin", action="append", default=[], metavar="ORIGIN",
+        help="an origin allowed to use the bridge, besides the hosted editor and "
+             "anything served from this machine. May be repeated",
+    )
+    parser.add_argument(
+        "--editor", default=os.environ.get("STAGEFLOW_EDITOR", HOSTED_UI),
+        help=f"which copy of the editor the bridge link should point at "
+             f"(default: {HOSTED_UI})",
     )
     parser.add_argument(
         "--check", action="store_true",
@@ -116,7 +145,21 @@ def main(argv: list[str] | None = None) -> int:
 
     from .server import build  # imported here so --check works without the MCP SDK
 
-    build(backend, lang=args.lang).run("stdio")
+    bridge = None
+    if args.bridge is not None:
+        bridge = Bridge(token=args.bridge_token or None,
+                        origins=[HOSTED_EDITOR, *args.bridge_origin])
+        bridge.start(args.bridge)
+        # stderr, because stdout is the MCP transport and a word on it would be
+        # a protocol error rather than a message
+        print(
+            "bridge open. Open the editor at this address to see what the agent "
+            f"draws:\n\n  {bridge.editor_link(args.editor, backend.url)}\n\n"
+            "The token is in the # part, so it never reaches the editor's host.",
+            file=sys.stderr,
+        )
+
+    build(backend, lang=args.lang, bridge=bridge).run("stdio")
     return 0
 
 

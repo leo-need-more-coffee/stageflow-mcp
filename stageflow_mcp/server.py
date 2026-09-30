@@ -15,8 +15,19 @@ from mcp.server.mcpserver import MCPServer
 
 from . import __version__
 from .backend import Backend
+from .bridge import Bridge
 from .catalog import EXAMPLES, GUIDE, capabilities, example, pipeline_schema, stage_catalog
 from .tools import DEFAULT_RUN_TIMEOUT, run_pipeline, stop_run, validate_pipeline
+
+BRIDGE_INSTRUCTIONS = """\
+
+An editor may be open on this graph. `get_editor_graph` is the canvas the
+person is looking at — start from it when they say "here", "this node" or "the
+one on screen" rather than asking them to paste anything. `show_in_editor`
+puts a graph on that canvas, where they can see it, keep editing it, or undo
+it. Show your work as you go: a graph that is only in this conversation is a
+graph nobody can look at.
+"""
 
 INSTRUCTIONS = """\
 This server is a client of one StageFlow backend: the stages it offers, what
@@ -33,13 +44,20 @@ arguments and outputs are the backend's, never guessable.
 """
 
 
-def build(backend: Backend, lang: str | None = None) -> MCPServer:
-    """An MCP server bound to one backend."""
+def build(backend: Backend, lang: str | None = None, bridge: Bridge | None = None) -> MCPServer:
+    """An MCP server bound to one backend, and optionally to an open editor.
+
+    The bridge is a parameter rather than a setting because it is a listening
+    socket: a server built without one has no way to reach a page, and the two
+    tools that would need it are not offered at all. An agent cannot be told
+    about a capability that does not exist, which is the only honest way to
+    make one optional.
+    """
     server = MCPServer(
         name="stageflow",
         title="StageFlow",
         version=__version__,
-        instructions=INSTRUCTIONS,
+        instructions=INSTRUCTIONS + (BRIDGE_INSTRUCTIONS if bridge else ""),
     )
 
     # ------------------------------------------------------------- tools
@@ -83,6 +101,50 @@ def build(backend: Backend, lang: str | None = None) -> MCPServer:
     )
     def stop_run_tool(run_id: str) -> dict[str, Any]:
         return stop_run(backend, run_id)
+
+    if bridge is not None:
+
+        @server.tool(
+            name="get_editor_graph",
+            title="Read the graph in the editor",
+            description=(
+                "The pipeline the open editor is showing right now, as the person "
+                "sees it. Use it when they refer to what is on screen instead of "
+                "asking them to paste JSON. Answers {connected: false} if no editor "
+                "has connected to the bridge yet."
+            ),
+        )
+        def get_editor_graph() -> dict[str, Any]:
+            graph, seen = bridge.editor_graph
+            if graph is None:
+                return {
+                    "connected": False,
+                    "hint": "open the editor with the bridge link this server printed at startup",
+                }
+            return {"connected": True, "pipeline": graph, "seen_at": seen}
+
+        @server.tool(
+            name="show_in_editor",
+            title="Put a graph on the editor's canvas",
+            description=(
+                "Send a pipeline to the open editor, where the person can look at "
+                "it, keep editing it, or undo it. `note` is one line saying what "
+                "changed, shown beside the connection in the status bar. Validate "
+                "before showing: an invalid graph draws, but it will not run."
+            ),
+        )
+        def show_in_editor(pipeline: dict[str, Any], note: str = "") -> dict[str, Any]:
+            index = bridge.push("graph", pipeline=pipeline, note=note)
+            return {
+                "shown": True,
+                "index": index,
+                "editor_connected": bridge.connected,
+                "note": (
+                    None if bridge.connected else
+                    "nothing has connected to the bridge yet; this is waiting for "
+                    "an editor and will be delivered when one arrives"
+                ),
+            }
 
     # --------------------------------------------------------- resources
 

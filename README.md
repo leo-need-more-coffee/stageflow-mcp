@@ -50,6 +50,8 @@ limits       {"counters": {"seconds": 30, "steps": 300, …}}
 | `validate_pipeline` | every violation at once — the schema, the graph's own checks, the declared types, and what the plan refuses. **Costs no run.** |
 | `run_pipeline` | runs it and reports status, result, artifacts, the meters against the ceilings, and the path of nodes the run actually took |
 | `stop_run` | stops one that is still going |
+| `show_in_editor` | with `--bridge`: puts the graph on an open editor's canvas |
+| `get_editor_graph` | with `--bridge`: reads the graph that editor is showing |
 
 | Resource | |
 |---|---|
@@ -58,6 +60,27 @@ limits       {"counters": {"seconds": 30, "steps": 300, …}}
 | `stageflow://capabilities` | node types, plan and ceilings, from `/api/meta` |
 | `stageflow://schema` | the pipeline JSON Schema, with the stage names and node types of **this** backend as enums |
 | `stageflow://examples/{name}` | small graphs built from the core's own stages |
+
+## The bridge to an open editor
+
+```bash
+stageflow-mcp --backend https://sf.example --bridge
+```
+
+prints a link. Open it, and the
+[editor](https://github.com/leo-need-more-coffee/stageflow-ui) is looking at
+the same graph the agent is: `show_in_editor` puts a pipeline on the canvas,
+`get_editor_graph` reads back what the person changed there. "Add a retry to
+this node" stops being a request to paste anything.
+
+Off unless asked for — the two tools do not exist without `--bridge`, because a
+tool an agent has been told about is a tool it will call, and a socket on
+somebody's machine is not this process's to open uninvited.
+
+It binds to loopback, requires a token made fresh at every start, and answers
+only to the editor and to pages served from this machine. The token travels in
+the **fragment** of the link, so it never reaches the host serving the editor —
+not its access log, not the `Referer` of anything the page fetches.
 
 ## Your backend needs no changes
 
