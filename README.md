@@ -21,14 +21,21 @@ editor talks to, handed to an agent as three tools and five resources.
 ## Add it
 
 ```bash
-claude mcp add stageflow -- uvx stageflow-mcp --backend https://stageflow.lazy.su
+claude mcp add stageflow -- \
+  uvx --from git+https://github.com/leo-need-more-coffee/stageflow-mcp \
+      stageflow-mcp --backend https://stageflow.lazy.su
 ```
+
+`pipx install git+https://github.com/leo-need-more-coffee/stageflow-mcp` puts
+`stageflow-mcp` on the PATH instead, if you would rather have it installed than
+fetched. A tag pins it: append `@0.1.0` to the URL.
 
 **Or let it ask.** With no `--backend` the first tool that needs one asks —
 through the MCP client's own prompt, not through the conversation:
 
 ```bash
-claude mcp add stageflow -- uvx stageflow-mcp
+claude mcp add stageflow -- \
+  uvx --from git+https://github.com/leo-need-more-coffee/stageflow-mcp stageflow-mcp
 ```
 
 The answer is remembered in `~/.config/stageflow-mcp/config.json`, so it is a
@@ -56,9 +63,9 @@ deployment replaces wholesale. Without one you are whatever that backend calls
 an anonymous caller — on the public demo above, a narrow plan that works.
 
 ```bash
-uvx stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN"
-uvx stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN" \
-                  --auth-header X-Api-Key          # if it is not Authorization
+stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN"
+stageflow-mcp --backend https://sf.example.org --token "$SF_TOKEN" \
+              --auth-header X-Api-Key              # if it is not Authorization
 ```
 
 Check the address before wiring an agent to it — the same questions, printed:
