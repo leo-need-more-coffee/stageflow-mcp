@@ -6,6 +6,7 @@ pushed before the editor connected is still there when it does.
 """
 import json
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -83,7 +84,50 @@ class CarryingTests(BridgeTestCase):
         graph, seen = self.bridge.editor_graph
         self.assertEqual(graph, GRAPH)
         self.assertGreater(seen, 0)
-        self.assertTrue(self.bridge.connected)
+
+    def test_connected_means_somebody_is_reading_it_now(self):
+        """Not "an editor said something once": a page closed an hour ago would
+        have an agent announcing it had put a graph on a canvas nobody has
+        open."""
+        self.request("/graph", method="POST", body={"pipeline": GRAPH})
+        self.assertFalse(self.bridge.connected, "a graph posted is not a reader")
+
+        seen = []
+        reading = threading.Event()
+
+        def listen():
+            url = f"{self.url}/events?token={self.bridge.token}"
+            request = urllib.request.Request(url, headers={"Accept": "text/event-stream"})
+            with urllib.request.urlopen(request, timeout=10) as stream:
+                reading.set()
+                for line in stream:
+                    if line.decode().startswith("data:"):
+                        seen.append(line)
+                        return
+
+        reader = threading.Thread(target=listen, daemon=True)
+        reader.start()
+        reading.wait(2)
+        for _ in range(40):  # the handler counts itself in as it starts
+            if self.bridge.connected:
+                break
+            time.sleep(0.05)
+        self.assertTrue(self.bridge.connected, "a stream being read is a connection")
+        self.assertEqual(self.bridge.listening, 1)
+
+        self.bridge.push("graph", pipeline=GRAPH)  # let the reader finish
+        reader.join(timeout=10)
+
+        # a page that went away is noticed when something is next written to it
+        # — that write fails and the handler lets go. Until then, or until the
+        # heartbeat, a closed tab still counts, which is the honest limit of
+        # knowing anything about the other end of a socket.
+        for _ in range(60):
+            if not self.bridge.connected:
+                break
+            self.bridge.push("ping")
+            time.sleep(0.1)
+        self.assertFalse(self.bridge.connected, "a reader that left stops counting")
 
     def test_a_body_that_is_not_a_graph_is_refused(self):
         for body in ({"pipeline": "a string"}, {"nothing": 1}):

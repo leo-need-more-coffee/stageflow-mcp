@@ -158,6 +158,7 @@ def build(connection: Connection | Backend, lang: str | None = None,
                 "shown": True,
                 "index": index,
                 "editor_connected": bridge.connected,
+                "editors_watching": bridge.listening,
                 "note": (
                     None if bridge.connected else
                     "nothing has connected to the bridge yet: this is waiting for "

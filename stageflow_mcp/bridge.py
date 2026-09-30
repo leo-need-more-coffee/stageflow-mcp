@@ -61,10 +61,23 @@ class Bridge:
     def __init__(self, token: str | None = None, origins: list[str] | None = None) -> None:
         self.token = token or secrets.token_urlsafe(24)
         self.origins = origins or [HOSTED_EDITOR]
+        #: This process, told apart from the last one that held this port.
+        #:
+        #: The message log starts again at zero every time an agent is started,
+        #: and a page that remembered "I have read 7 of them" would skip the
+        #: first seven of the new one — including the graph it opened with. A
+        #: reader compares this and starts over when it changed. The same
+        #: problem the run stream does not have because a run has an id.
+        self.session = secrets.token_hex(8)
         self._messages: list[dict] = []
         self._graph: dict | None = None
         self._graph_seen: float = 0.0
         self._lock = threading.Condition()
+        #: how many editors are reading the stream right now. Tracked because
+        #: "an editor has connected at some point" and "somebody is looking at
+        #: this" are different answers, and only the second one makes "I have
+        #: put it on your canvas" true
+        self._listeners = 0
         self._server: ThreadingHTTPServer | None = None
         self.url = ""
         #: the address a person should open, once someone has worked out which
@@ -94,12 +107,28 @@ class Bridge:
             return self._graph, self._graph_seen
 
     @property
+    def listening(self) -> int:
+        """Editors reading the stream at this moment."""
+        with self._lock:
+            return self._listeners
+
+    @property
     def connected(self) -> bool:
-        """Whether an editor has ever said anything. Not a liveness check —
-        a page that was closed is indistinguishable from one that is idle until
-        the next push fails to be read, and pretending otherwise would have the
-        agent announce a connection that is not there."""
-        return self._graph is not None
+        """Whether an editor is there to receive what is pushed.
+
+        The count of live readers rather than "one said something once": a page
+        that was closed an hour ago would otherwise have an agent announcing it
+        had put a graph on a canvas nobody has open.
+        """
+        return self.listening > 0
+
+    def _joined(self) -> None:
+        with self._lock:
+            self._listeners += 1
+
+    def _left(self) -> None:
+        with self._lock:
+            self._listeners = max(0, self._listeners - 1)
 
     def follow(self, start: int = 0):
         """Messages from `start`, waiting for new ones; `None` as a heartbeat."""
@@ -231,7 +260,12 @@ class _Handler(BaseHTTPRequestHandler):
             # behind the same locks as everything else
             if not self._guard(query):
                 return
-            return self._send(200, {"bridge": "stageflow", "ok": True})
+            return self._send(200, {
+                "bridge": "stageflow",
+                "ok": True,
+                "session": self.bridge.session,
+                "messages": len(self.bridge._messages),
+            })
         if parts.path == "/events":
             if not self._guard(query):
                 return
@@ -264,6 +298,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.send_header("Connection", "close")
         self.end_headers()
+        self.bridge._joined()
         try:
             for message in self.bridge.follow(start):
                 if message is None:
@@ -274,3 +309,5 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError):
             return  # the page was closed or reloaded; it will come back with ?from=
+        finally:
+            self.bridge._left()
