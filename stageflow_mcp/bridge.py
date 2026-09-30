@@ -216,9 +216,11 @@ class _Handler(BaseHTTPRequestHandler):
         if origin:
             self.send_header("Access-Control-Allow-Origin", origin.rstrip("/"))
             self.send_header("Vary", "Origin")
-        # Chrome calls a request from an https page to 127.0.0.1 a private
-        # network request and will not send it unless the preflight says this.
-        # The editor's own backend guide has been through exactly this.
+        # A page served from the internet reaching 127.0.0.1 crosses address
+        # spaces, and browsers guard it. This header is what the older guard
+        # (private network access) asks for and is still worth sending; the
+        # newer one in current Chrome is a user permission instead, which no
+        # header can answer — see the README.
         if self.headers.get("Access-Control-Request-Private-Network"):
             self.send_header("Access-Control-Allow-Private-Network", "true")
 

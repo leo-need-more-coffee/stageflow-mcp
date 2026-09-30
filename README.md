@@ -123,6 +123,17 @@ only to the editor and to pages served from this machine. The token travels in
 the **fragment** of the link, so it never reaches the host serving the editor —
 not its access log, not the `Referer` of anything the page fetches.
 
+**One browser rule to know about.** A page served from the internet — the
+published editor — reaching `127.0.0.1` is a request across address spaces, and
+current Chrome gates it behind a permission prompt about your local network.
+Allow it and the bridge works; the editor's status bar says so rather than
+showing a bare network error. If that prompt is refused or never appears, serve
+the editor from the same machine and nothing crosses anything:
+
+```bash
+stageflow-mcp --backend https://… --bridge --editor http://127.0.0.1:8080/
+```
+
 ## Your backend needs no changes
 
 There is no `/api/validate` in the StageFlow contract and this asks for none.
