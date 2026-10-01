@@ -84,7 +84,7 @@ limits       {"counters": {"seconds": 30, "steps": 300, …}}
 | Tool | |
 |---|---|
 | `validate_pipeline` | every violation at once — the schema, the graph's own checks, the declared types, and what the plan refuses. **Costs no run.** |
-| `run_pipeline` | runs it and reports status, result, artifacts, the meters against the ceilings, and the path of nodes the run actually took |
+| `run_pipeline` | runs it and reports **what it computed** — the frame at the end — plus status, result, artifacts, the meters against the ceilings, and the path of nodes it took |
 | `stop_run` | stops one that is still going |
 | `show_in_editor` | with `--bridge`: puts the graph on an open editor's canvas |
 | `get_editor_graph` | with `--bridge`: reads the graph that editor is showing |

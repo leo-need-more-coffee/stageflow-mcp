@@ -47,6 +47,33 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(stages["LonelyStage"]["description"],
                              "Only one language, so a plain string")
 
+    def test_a_spec_carries_nothing_a_writer_cannot_use(self):
+        """An icon, a colour, a timeout it does not control: the palette needs
+        them, a model spends context on them and gets nothing back."""
+        with FakeBackend() as fake:
+            spec = stage_catalog(Backend(fake.url))["SetValueStage"]
+            for drawing in ("icon", "icon_mono", "color", "skipable", "reserve", "timeout"):
+                self.assertNotIn(drawing, spec, drawing)
+            # and what it does need is all there
+            for useful in ("stage_name", "category", "description", "arguments", "outputs"):
+                self.assertIn(useful, spec, useful)
+
+    def test_empty_event_and_input_lists_are_dropped_but_real_ones_are_not(self):
+        """A stage that waits for input will hang a run, so when there is
+        something there it has to be visible — and twenty-three empty lists are
+        not."""
+        with FakeBackend() as fake:
+            quiet = stage_catalog(Backend(fake.url))["SetValueStage"]
+            self.assertNotIn("allowed_inputs", quiet)
+
+    def test_nothing_answering_is_not_a_backend_without_meta(self):
+        """Different problems, different fixes: one is a contract a backend did
+        not implement, the other is a process that is not running."""
+        answer = capabilities(Backend("http://127.0.0.1:9", timeout=2.0))
+        self.assertFalse(answer["available"])
+        self.assertIn("nothing answered", answer["note"])
+        self.assertIn("127.0.0.1:9", answer["note"])
+
     def test_a_backend_without_meta_is_not_second_guessed(self):
         with FakeBackend() as fake:
             fake.script.serve_meta = False

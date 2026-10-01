@@ -21,6 +21,8 @@ two. Every path out of `validate_pipeline` stops what it started.
 """
 from __future__ import annotations
 
+import json
+import re
 import time
 from typing import Any
 
@@ -35,6 +37,16 @@ DEFAULT_RUN_TIMEOUT = 90.0
 #: happened, the state says where it got to; for "is it over yet" the state is
 #: the cheaper question.
 POLL_SECONDS = 0.3
+
+#: How much of the frame comes back with a run. A graph that built a big list
+#: would otherwise push everything else out of the answer; what matters is
+#: seeing what it computed, and a value that long is read by running it again
+#: with the editor open.
+MAX_FRAME_CHARS = 4_000
+
+#: Statuses that mean nothing was looked at: the question never arrived or the
+#: backend could not take it. Never a verdict about the graph.
+_NOT_A_VERDICT = (0, 429, 500, 502, 503, 504)
 
 #: What a class name in front of a refusal means for the caller.
 _VALIDATION_ERRORS = ("PipelineValidationError",)
@@ -57,13 +69,61 @@ def split_errors(message: str) -> list[str]:
     """
     text = (message or "").strip()
     kind, _, rest = text.partition(": ")
+    if kind in _DEFINITION_ERRORS:
+        _preamble, _, listed = rest.partition(": ")
+        return _located_parts(listed.strip() or rest.strip())
     if kind not in _VALIDATION_ERRORS:
-        if kind in _DEFINITION_ERRORS:
-            return [rest.strip() or text]
         return [text]
     _preamble, _, listed = rest.partition(": ")
     listed = listed.strip() or rest.strip()
     return [part.strip() for part in listed.split("; ") if part.strip()]
+
+
+#: `node.field[0]: ` — what a located shape complaint starts with.
+_PLACE = re.compile(r"^[A-Za-z_][\w\-.]*(\[\d+\])?([.\w\-]|\[\d+\])*: ")
+
+
+def _located_parts(listed: str) -> list[str]:
+    """A list of shape complaints, split only where a new one really begins.
+
+    The core puts the place in front of each — `guard.except[0]: …` — and joins
+    them with the same `"; "` that may well appear INSIDE one of them: a schema
+    message quotes the value it rejected. So a piece that does not begin with a
+    place is not a new complaint, it is the rest of the last one.
+    """
+    parts: list[str] = []
+    for piece in listed.split("; "):
+        if parts and not _PLACE.match(piece):
+            parts[-1] = f"{parts[-1]}; {piece}"
+        elif piece.strip():
+            parts.append(piece.strip())
+    return parts or [listed]
+
+
+def _blocked(refused: BackendError, backend: Backend) -> dict[str, Any]:
+    """Nothing was looked at, and saying which is the whole point.
+
+    Returned rather than raised. An exception reaches a client as "the tool
+    failed", with the reason somewhere in a log nobody is reading — and the
+    model's next move is to rewrite a graph that was never read. An answer that
+    says `blocked` cannot be mistaken for a verdict and carries what to do.
+    """
+    busy = refused.status == 429
+    return {
+        "blocked": "backend-busy" if busy else (
+            "backend-unreachable" if refused.status == 0 else "backend-error"),
+        "checked": False,
+        "detail": refused.message,
+        "status": refused.status,
+        "backend": backend.url,
+        "hint": (
+            "the backend is at its limit of running runs; wait and ask again"
+            if busy else
+            f"nothing answered at {backend.url} — is the backend running, and is "
+            "that the address you meant?" if refused.status == 0 else
+            "the backend failed to answer; this says nothing about the graph"
+        ),
+    }
 
 
 def validate_pipeline(
@@ -86,11 +146,11 @@ def validate_pipeline(
         run_id = (started or {}).get("id")
         return {"ok": True, "errors": [], "checked_by": backend.url}
     except BackendError as refused:
-        if refused.status in (0, 429, 500, 502, 503, 504):
+        if refused.status in _NOT_A_VERDICT:
             # not a verdict about the graph: nothing answered, or the stand is
             # full. Saying "invalid" here would send an agent rewriting a graph
             # that was never looked at.
-            raise
+            return _blocked(refused, backend)
         return {
             "ok": False,
             "errors": split_errors(refused.message),
@@ -126,7 +186,19 @@ def run_pipeline(
     thing that explains a surprising result: a `condition` that went the other
     way is invisible in a result and obvious in a list of nodes.
     """
-    started = backend.start_run(pipeline, variables, mode="run", delay=0.0)
+    try:
+        started = backend.start_run(pipeline, variables, mode="run", delay=0.0)
+    except BackendError as refused:
+        if refused.status in _NOT_A_VERDICT:
+            return _blocked(refused, backend)
+        # the graph was read and refused: the same list validate_pipeline gives
+        return {
+            "ran": False,
+            "errors": split_errors(refused.message),
+            "raw": refused.message,
+            "status": refused.status,
+            "hint": "the backend would not run this graph; validate_pipeline says the same",
+        }
     run_id = (started or {}).get("id")
     if not run_id:
         raise BackendError(0, "the backend started a run without giving it an id")
@@ -152,6 +224,11 @@ def run_pipeline(
     report = {
         "run_id": run_id,
         "status": "timed_out" if timed_out else state.get("status"),
+        # what it computed. The first thing anybody asks after a run, and it
+        # was being thrown away: `result` is only what a terminal node returns,
+        # and a graph that writes its answer into a variable — which is most of
+        # them — looked like it had produced nothing at all
+        "variables": _frame(state.get("vars")),
         "result": state.get("result"),
         "artifacts": state.get("artifacts"),
         "error": state.get("error"),
@@ -170,6 +247,25 @@ def run_pipeline(
 def stop_run(backend: Backend, run_id: str) -> dict[str, Any]:
     """Stop a run that is still going. Answers with its state."""
     return backend.control(run_id, "stop")
+
+
+def _frame(variables: Any) -> Any:
+    """The frame as it stood when the run ended, trimmed if it is enormous.
+
+    Trimmed per value rather than as a whole: losing the tail of one long list
+    still leaves every other name readable, where a cut across the object would
+    take away names the author is looking for.
+    """
+    if not isinstance(variables, dict):
+        return variables
+    out: dict[str, Any] = {}
+    for name, value in variables.items():
+        shown = json.dumps(value, ensure_ascii=False, default=repr)
+        if len(shown) > MAX_FRAME_CHARS:
+            out[name] = f"{shown[:MAX_FRAME_CHARS]}… ({len(shown)} characters in all)"
+        else:
+            out[name] = value
+    return out
 
 
 def _what_happened(backend: Backend, run_id: str, limit: int = 400) -> dict[str, Any]:

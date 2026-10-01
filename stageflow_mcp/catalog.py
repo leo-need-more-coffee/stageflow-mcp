@@ -54,10 +54,24 @@ def prose(value: Any, lang: str | None) -> Any:
     return next(iter(value.values()), "")
 
 
+#: What a stage spec carries for the editor's palette and nothing else. A
+#: reader that cannot draw a card spends context on these and gets nothing: an
+#: icon, a colour, a timeout it does not control. Dropped from what goes to a
+#: model; the editor still gets the whole spec from the backend.
+_FOR_DRAWING = ("icon", "icon_mono", "color", "skipable", "reserve", "timeout")
+
+#: Kept only when they say something. Almost every stage has neither, and an
+#: empty list on every one of twenty-three stages is pure noise — but a stage
+#: that WAITS FOR INPUT is a stage that will hang a run, so when there is
+#: something here it has to be visible.
+_WHEN_PRESENT = ("allowed_events", "allowed_inputs")
+
+
 def _localize_spec(spec: dict, lang: str | None) -> dict:
-    """A stage spec with every description collapsed: the stage's own, and
-    those of its arguments, outputs, events and inputs."""
-    out = dict(spec)
+    """A stage spec as somebody writing a graph needs it: every description in
+    one language, and nothing that only matters to whoever draws the card."""
+    out = {k: v for k, v in spec.items()
+           if k not in _FOR_DRAWING and (k not in _WHEN_PRESENT or v)}
     if "description" in out:
         out["description"] = prose(out["description"], lang)
     for section in ("arguments", "outputs", "allowed_events", "allowed_inputs"):
@@ -92,6 +106,18 @@ def capabilities(backend: Backend) -> dict[str, Any]:
     try:
         return backend.meta()
     except BackendError as refused:
+        if refused.status == 0:
+            # nothing is listening there. Calling that "the backend does not
+            # serve /meta" sends somebody reading a contract when what they
+            # have is a process that is not running
+            return {
+                "available": False,
+                "reason": refused.message,
+                "note": (
+                    f"nothing answered at {backend.url} — this is not a backend "
+                    "without /api/meta, it is an address with nothing behind it"
+                ),
+            }
         return {
             "available": False,
             "reason": refused.message,
@@ -209,13 +235,65 @@ A run ends at a `terminal` node or at a node with nowhere left to go. Every
 road should reach one: a graph whose only paths lead back into themselves never
 finishes.
 
-## The rest
+## Blocks: a body, and where it comes back
 
-`parallel` runs branches at once and merges their frames; `try` guards a body
-with `except` handlers; `map` runs a body per item of a list and collects what
-the body wrote; `subpipeline` runs a graph declared in `subpipelines`. Each has
-its own fields — the schema resource has them all, with the enums of this
-backend already applied.
+Four node types own a piece of the graph rather than pointing at the next one.
+They are written the same way: a field names the ENTRY of the body, and the
+body's last node leads nowhere — control comes back to the block, and the
+block's `next` is where everything goes afterwards. Writing a body that ends by
+jumping to the node after the block is the usual mistake; it leaves the block
+without an exit.
+
+### try — a body with handlers
+
+    {"id": "guard", "type": "try", "body": "risky",
+     "except": [{"error_equals": ["*"], "next": "recover", "result_var": "err"}],
+     "next": "after"}
+
+`except` entries take **`next`**, not `then` — the one field in this format most
+likely to be guessed wrong. `error_equals` is a list of exception class names,
+`"*"` for any. `result_var` is where the error object lands for the handler to
+read. A handler's own road may rejoin the graph wherever it likes.
+
+### map — a body per item
+
+    {"id": "each", "type": "map", "items": "vars.rolls", "item_var": "roll",
+     "index_var": "i", "collect": {"text": "labels"},
+     "body": "label", "next": "after"}
+
+`items` is CEL, not a variable name. `item_var` is what the element is called
+inside the body, `index_var` the zero-based position. `collect` maps a name the
+body WRITES onto a list outside — `{"text": "labels"}` means "the body's `text`,
+one entry per item, as `labels`". A list is shorthand for keeping the name.
+Without `collect` a loop computes and keeps nothing.
+
+### parallel — branches at once
+
+    {"id": "both", "type": "parallel",
+     "branches": [{"id": "left", "entry": "fetch"}, {"id": "right", "entry": "count"}],
+     "next": "after"}
+
+Each branch names the entry of its own body; the frames are merged when they
+all finish. A bare string is shorthand for `{"entry": that}`.
+
+### subpipeline — a graph as a node
+
+    {"id": "inner", "type": "subpipeline", "subpipeline_id": "scoring", "next": "after"}
+
+The child graph lives in the pipeline's `subpipelines` object under that id.
+
+## Retries, renames, and forgetting
+
+Any node takes these; none of them needs a stage.
+
+    "retry": [{"error_equals": ["*"], "max_attempts": 3,
+               "interval_seconds": 0.5, "backoff_rate": 2}]
+    "expose": {"total": "sum"}        rename or copy inside the frame
+    "consume": ["scratch", "tmp"]     names removed from the frame after this node
+
+What `max_attempts` and `interval_seconds` may be is the caller's plan, not a
+preference: the `capabilities` resource has the ceilings, and a graph that asks
+for more is refused by `validate_pipeline` rather than at run time.
 
 ## Do not place the nodes
 

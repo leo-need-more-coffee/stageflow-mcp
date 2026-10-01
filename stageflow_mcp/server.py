@@ -86,7 +86,9 @@ def build(connection: Connection | Backend, lang: str | None = None,
             "Check a pipeline against the backend without running it. Answers "
             "{ok, errors[]} — every violation at once: the JSON schema, the "
             "graph's own checks, the declared types, and what the caller's plan "
-            "refuses. Costs no run. Use it after every edit."
+            "refuses. Costs no run. Use it after every edit. An answer with "
+            "`blocked` instead of `ok` means nothing was checked — the backend "
+            "is unreachable or busy — and says nothing about the graph."
         ),
     )
     async def validate_pipeline_tool(
@@ -98,10 +100,13 @@ def build(connection: Connection | Backend, lang: str | None = None,
         name="run_pipeline",
         title="Run a pipeline",
         description=(
-            "Run a pipeline to the end on the backend and report what happened: "
-            "status, result, artifacts, the error if it failed, the meters "
-            "against the plan's ceilings, and the path of nodes the run actually "
-            "took. Validate first — a run is a slot on a shared backend."
+            "Run a pipeline to the end and report what happened: `variables` — "
+            "the frame as it stood at the end, which is what the graph computed "
+            "— plus status, result, artifacts, any error, the meters against the "
+            "plan's ceilings, and the path of nodes the run took. `blocked` "
+            "means the backend could not be reached; `ran: false` with `errors` "
+            "means it read the graph and refused it. Validate first: a run is a "
+            "slot on a shared backend."
         ),
     )
     async def run_pipeline_tool(
@@ -222,16 +227,26 @@ def build(connection: Connection | Backend, lang: str | None = None,
             return _no_backend_yet("the schema narrowed to a backend")
         return json.dumps(pipeline_schema(connection.backend), ensure_ascii=False, indent=2)
 
-    @server.resource(
-        "stageflow://examples/{name}",
-        name="An example pipeline",
-        description=f"One of: {', '.join(sorted(EXAMPLES))}. Built from the core's own stages.",
-        mime_type="application/json",
-    )
-    def one_example(name: str) -> str:
-        if name not in EXAMPLES:
-            raise ValueError(f"no such example: {name!r}; have {', '.join(sorted(EXAMPLES))}")
-        return example(name)
+    # one resource each, rather than one template for all of them. A template
+    # is listed by `resources/templates/list`, which plenty of clients never
+    # ask for — so the examples existed and nothing could find them without
+    # already knowing their names.
+    def reader(key: str):
+        """A zero-argument handler per example: a resource whose URI has no
+        template variables may not declare parameters."""
+        def read() -> str:
+            return example(key)
+        return read
+
+    for key in sorted(EXAMPLES):
+        title = EXAMPLES[key].get("metadata", {}).get("title", key)
+        server.resource(
+            f"stageflow://examples/{key}",
+            name=f"Example: {title}",
+            description=f"A small working pipeline — {title.lower()}. Built from the "
+                        f"core's own stages, so it runs against any backend.",
+            mime_type="application/json",
+        )(reader(key))
 
     return server
 

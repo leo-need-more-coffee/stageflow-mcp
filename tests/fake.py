@@ -57,6 +57,8 @@ class Script:
         self.running_polls: int = 0
         self.final_status: str = "finished"
         self.serve_meta: bool = True
+        #: what the frame holds when a run ends
+        self.frame: dict = {}
         self.events: list[dict] = []
         self.runs: dict[str, int] = {}
         self._next = 0
@@ -112,6 +114,7 @@ class _Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 "id": run_id, "status": script.final_status,
                 "result": {"done": True}, "artifacts": {},
+                "vars": script.frame,
                 "error": None, "meters": {"steps": 3}, "limits": {"steps": 300},
             })
         return self._send(404, {"error": f"no such thing: {path}"})
