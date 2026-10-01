@@ -95,6 +95,49 @@ def stage_catalog(backend: Backend, lang: str | None = None) -> dict[str, Any]:
     return {name: _localize_spec(spec, lang) for name, spec in sorted(specs.items())}
 
 
+def stage_index(backend: Backend, lang: str | None = None) -> dict[str, Any]:
+    """Every stage in a line each: what it does, what it takes, what it leaves.
+
+    The whole registry with every description is five thousand tokens of
+    context before a graph is written, and a graph uses three or four stages.
+    This is the part that answers "which one do I want" — the rest is one read
+    away at `stageflow://stages/<name>`, for the few that turned out to be the
+    answer.
+
+    Argument and output NAMES are here rather than only in the detail, because
+    with them a simple stage can be written without a second look, and
+    `validate_pipeline` catches it if the guess was wrong.
+    """
+    out: dict[str, Any] = {}
+    for name, spec in sorted(backend.stages().items()):
+        entry: dict[str, Any] = {"about": prose(spec.get("description", ""), lang)}
+        if spec.get("category"):
+            entry["category"] = spec["category"]
+        # names joined rather than listed: a JSON array printed one item to a
+        # line triples the size of this, and these are names, not structure
+        takes = [row.get("name") for row in spec.get("arguments") or [] if row.get("name")]
+        gives = [row.get("name") for row in spec.get("outputs") or [] if row.get("name")]
+        if takes:
+            entry["takes"] = ", ".join(takes)
+        if gives:
+            entry["gives"] = ", ".join(gives)
+        if spec.get("allowed_inputs"):
+            # a stage that waits for input will hang a run, and the contract
+            # has no way to answer it — that belongs in the one-line summary
+            entry["waits_for_input"] = True
+        out[name] = entry
+    return out
+
+
+def stage_detail(backend: Backend, name: str, lang: str | None = None) -> dict[str, Any]:
+    """One stage in full: types, which arguments are optional, what each means."""
+    specs = backend.stages()
+    if name not in specs:
+        near = ", ".join(sorted(specs)[:12])
+        raise ValueError(f"no stage called {name!r} on this backend. It serves: {near}…")
+    return _localize_spec(specs[name], lang)
+
+
 def capabilities(backend: Backend) -> dict[str, Any]:
     """`/api/meta`, or an honest account of its absence.
 

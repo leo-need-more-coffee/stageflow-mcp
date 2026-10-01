@@ -92,7 +92,8 @@ limits       {"counters": {"seconds": 30, "steps": 300, …}}
 | Resource | |
 |---|---|
 | `stageflow://guide` | the frame, the node types, arguments and outputs, expressions |
-| `stageflow://stages` | the stages this caller may use, in one language |
+| `stageflow://stages` | every stage a line each — what it does, what it takes, what it leaves |
+| `stageflow://stages/{name}` | one stage in full: types, which arguments are optional, what each means |
 | `stageflow://capabilities` | node types, plan and ceilings, from `/api/meta` |
 | `stageflow://schema` | the pipeline JSON Schema, with the stage names and node types of **this** backend as enums |
 | `stageflow://examples/{name}` | small graphs built from the core's own stages |

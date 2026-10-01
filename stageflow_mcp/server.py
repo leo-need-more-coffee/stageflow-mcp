@@ -17,7 +17,9 @@ from . import __version__
 from .backend import Backend
 from .bridge import Bridge
 from .connection import Connection
-from .catalog import EXAMPLES, GUIDE, capabilities, example, pipeline_schema, stage_catalog
+from .catalog import (
+    EXAMPLES, GUIDE, capabilities, example, pipeline_schema, stage_detail, stage_index,
+)
 from .tools import DEFAULT_RUN_TIMEOUT, run_pipeline, stop_run, validate_pipeline
 
 BRIDGE_INSTRUCTIONS = """\
@@ -45,8 +47,12 @@ answers with every violation at once, the plan's refusals included. Fix the
 list, validate again, and only then `run_pipeline`.
 
 Before writing anything, read `stageflow://guide` for the shape of a graph and
-`stageflow://stages` for what this backend can actually do — stage names,
-arguments and outputs are the backend's, never guessable.
+`stageflow://stages` for what this backend can do — a line per stage. Pull
+`stageflow://stages/<name>` for the few a graph actually uses; stage names,
+arguments and outputs are the backend's and are never guessable.
+
+`stageflow://schema` is there when the guide is not enough — it is large, and
+the guide covers what graphs are usually made of.
 """
 
 
@@ -188,15 +194,39 @@ def build(connection: Connection | Backend, lang: str | None = None,
         "stageflow://stages",
         name="The stages this backend offers",
         description=(
-            "Every stage the caller may use, with its arguments and outputs, "
-            "in one language. The backend's own registry — not guessable."
+            "Every stage the caller may use, a line each: what it does, what it "
+            "takes and what it leaves. The backend's own registry — not "
+            "guessable. For the types and what each argument means, read "
+            "stageflow://stages/<name> for the few you are using."
         ),
         mime_type="application/json",
     )
     def stages() -> str:
         if connection.backend is None:
             return _no_backend_yet("the stages a backend offers")
-        return json.dumps(stage_catalog(connection.backend, lang),
+        index = stage_index(connection.backend, lang)
+        # one line per stage: an array printed an item to a line is three times
+        # the context for the same names
+        body = ",\n  ".join(
+            f"{json.dumps(name)}: {json.dumps(entry, ensure_ascii=False)}"
+            for name, entry in index.items()
+        )
+        return "{\n  " + body + "\n}"
+
+    @server.resource(
+        "stageflow://stages/{name}",
+        name="One stage in full",
+        description=(
+            "Types, which arguments are optional, what each one means, and what "
+            "the stage returns. Read it for the stages a graph actually uses; "
+            "the index at stageflow://stages has the names."
+        ),
+        mime_type="application/json",
+    )
+    def one_stage(name: str) -> str:
+        if connection.backend is None:
+            return _no_backend_yet("a stage specification")
+        return json.dumps(stage_detail(connection.backend, name, lang),
                           ensure_ascii=False, indent=2)
 
     @server.resource(
@@ -218,7 +248,9 @@ def build(connection: Connection | Backend, lang: str | None = None,
         name="The pipeline JSON Schema",
         description=(
             "The core's schema, narrowed to this backend: the stage names it "
-            "serves and the node types it can run are enums in it."
+            "serves and the node types it can run are enums in it. Large — the "
+            "guide covers what graphs are usually made of; this is for the "
+            "corners it does not."
         ),
         mime_type="application/schema+json",
     )

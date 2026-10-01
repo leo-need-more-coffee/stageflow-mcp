@@ -1,9 +1,11 @@
 """What the model is given to read: stages, capabilities, the schema, the guide."""
+import json
 import unittest
 
 from stageflow_mcp.backend import Backend
 from stageflow_mcp.catalog import (
-    EXAMPLES, GUIDE, capabilities, pipeline_schema, prose, stage_catalog,
+    EXAMPLES, GUIDE, capabilities, pipeline_schema, prose, stage_catalog, stage_detail,
+    stage_index,
 )
 from tests.fake import FakeBackend
 
@@ -73,6 +75,45 @@ class CatalogTests(unittest.TestCase):
         self.assertFalse(answer["available"])
         self.assertIn("nothing answered", answer["note"])
         self.assertIn("127.0.0.1:9", answer["note"])
+
+    def test_the_index_is_a_line_a_stage(self):
+        """Five thousand tokens of registry before a graph is written, and a
+        graph uses three stages. The index answers "which one do I want"."""
+        with FakeBackend() as fake:
+            index = stage_index(Backend(fake.url), "ru")
+            entry = index["SetValueStage"]
+            self.assertEqual(entry["about"], "Кладёт значение")
+            self.assertEqual(entry["takes"], "value")
+            self.assertEqual(entry["gives"], "value")
+            self.assertNotIn("arguments", entry)
+
+    def test_the_index_is_much_smaller_than_the_registry(self):
+        with FakeBackend() as fake:
+            backend = Backend(fake.url)
+            index = json.dumps(stage_index(backend), ensure_ascii=False)
+            whole = json.dumps(stage_catalog(backend), ensure_ascii=False)
+            self.assertLess(len(index) * 2, len(whole),
+                            "an index that is half the registry is not an index")
+
+    def test_a_stage_that_waits_for_input_says_so_in_the_index(self):
+        """It will hang a run — the contract has no way to answer it — so that
+        belongs in the line, not in a detail nobody read."""
+        with FakeBackend() as fake:
+            fake.script.waiting_stage = True
+            index = stage_index(Backend(fake.url))
+            self.assertTrue(index["LonelyStage"]["waits_for_input"])
+
+    def test_the_detail_has_what_the_index_left_out(self):
+        with FakeBackend() as fake:
+            spec = stage_detail(Backend(fake.url), "SetValueStage", "ru")
+            self.assertEqual(spec["arguments"][0]["type"], "any")
+            self.assertEqual(spec["arguments"][0]["description"], "что положить")
+
+    def test_asking_for_a_stage_that_is_not_there_names_what_is(self):
+        with FakeBackend() as fake:
+            with self.assertRaises(ValueError) as caught:
+                stage_detail(Backend(fake.url), "NoSuchStage")
+            self.assertIn("SetValueStage", str(caught.exception))
 
     def test_a_backend_without_meta_is_not_second_guessed(self):
         with FakeBackend() as fake:

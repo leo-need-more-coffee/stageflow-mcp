@@ -60,7 +60,16 @@ class ServerTests(unittest.TestCase):
             self.assertIn("StageFlow pipeline", guide)
 
             stages = json.loads(text_of(asyncio.run(server.read_resource("stageflow://stages"))))
-            self.assertEqual(stages["SetValueStage"]["description"], "Кладёт значение")
+            # the index: a line each, with the prose in the reader's language
+            self.assertEqual(stages["SetValueStage"]["about"], "Кладёт значение")
+            self.assertEqual(stages["SetValueStage"]["takes"], "value")
+            self.assertNotIn("arguments", stages["SetValueStage"],
+                             "the index carries names, not the whole spec")
+
+            one = json.loads(text_of(asyncio.run(
+                server.read_resource("stageflow://stages/SetValueStage"))))
+            self.assertEqual(one["description"], "Кладёт значение")
+            self.assertEqual(one["arguments"][0]["description"], "что положить")
 
             schema = json.loads(text_of(asyncio.run(server.read_resource("stageflow://schema"))))
             self.assertIn("enum", schema["$defs"]["stage_node"]["properties"]["stage"])

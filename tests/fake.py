@@ -57,6 +57,8 @@ class Script:
         self.running_polls: int = 0
         self.final_status: str = "finished"
         self.serve_meta: bool = True
+        #: whether LonelyStage declares an input it waits for
+        self.waiting_stage: bool = False
         #: what the frame holds when a run ends
         self.frame: dict = {}
         self.events: list[dict] = []
@@ -96,7 +98,11 @@ class _Handler(BaseHTTPRequestHandler):
         path = self._record()
         script = self.script
         if path == "/api/stages":
-            return self._send(200, {"stages": STAGES})
+            stages = {k: dict(v) for k, v in STAGES.items()}
+            if script.waiting_stage:
+                stages["LonelyStage"]["allowed_inputs"] = [
+                    {"type": "answer", "description": "what the person says"}]
+            return self._send(200, {"stages": stages})
         if path == "/api/meta":
             if not script.serve_meta:
                 return self._send(404, {"error": "no meta here"})
