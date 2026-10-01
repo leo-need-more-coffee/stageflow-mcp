@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "stageflow-mcp"
-version = "0.1.2"
+version = "0.2.0"
 description = "StageFlow over MCP: let an agent write, check and run pipelines on a StageFlow backend"
 readme = "README.md"
 license = "MIT"
